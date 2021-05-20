@@ -132,7 +132,7 @@ ProjectData = R6::R6Class("ProjectData",
         #' @param remove.base.artifact flag whether the base artifact is kept or removed
         #'
         #' @return the commits after all filters have been applied
-        filter.commits = function(commits, remove.untracked.files, remove.base.artifact) {
+        filter.commits = function(commits, remove.untracked.files, remove.base.artifact, remove.bots) {
             logging::logdebug("filter.commits: starting.")
 
             ## filter out the untracked files
@@ -143,6 +143,20 @@ ProjectData = R6::R6Class("ProjectData",
             ## filter out the base artifacts (i.e., Base_Feature, File_Level)
             if (remove.base.artifact) {
                 commits = subset(commits, !(artifact %in% BASE.ARTIFACTS))
+            }
+
+            ## filter out all commits made by bots
+            ## TODO this reorders commits. is this OK?
+            if (remove.bots) {
+                logging::logdebug("Commit foobar:")
+                logging::logdebug(commits)
+                authors = get.authors()
+                orig.names = names(commits)
+                commits = merge(commits, authors, by = c("author.name", "author.email"), all.x = TRUE, sort = FALSE)
+                logging::logdebug("Barfoo")
+                commits = commits[(is.na(commits[["is.bot"]]) | commits[["is.bot"]] != TRUE),]
+                logging::logdebug("Bazbaz")
+                commits = commits[,orig.names]
             }
 
             logging::logdebug("filter.commits: finished.")
@@ -157,11 +171,20 @@ ProjectData = R6::R6Class("ProjectData",
         #' @param issues.only.comments flag whether non-comment issue events are removed
         #'
         #' @return the issues after all filters have been applied
-        filter.issues = function(issues, issues.only.comments) {
+        filter.issues = function(issues, issues.only.comments, remove.bots) {
             logging::logdebug("filter.issues: starting.")
 
             if (issues.only.comments) {
                 issues = issues[issues[["event.name"]] == "commented", ]
+            }
+
+            ## TODO this reorders the issues. is this OK?
+            if (FALSE) { #} && nrow(issues) > 0) {
+                authors = get.authors()
+                orig.names = names(issues)
+                issues = merge(issues, authors, by = c("author.name", "author.email"), all.x = TRUE, sort = FALSE)
+                issues = issues[(is.na(issues[["is.bot"]]) | issues[["is.bot"]] != TRUE),]
+                issues = issues[,orig.names]
             }
 
             logging::logdebug("filter.issues: finished.")
@@ -704,7 +727,8 @@ ProjectData = R6::R6Class("ProjectData",
                 private$commits.filtered = private$filter.commits(
                     self$get.commits(),
                     private$project.conf$get.value("commits.filter.untracked.files"),
-                    private$project.conf$get.value("commits.filter.base.artifact")
+                    private$project.conf$get.value("commits.filter.base.artifact"),
+                    private$project.conf$get.value("filter.bots")
                 )
             }
             return(private$commits.filtered)
@@ -722,8 +746,8 @@ ProjectData = R6::R6Class("ProjectData",
         #' @return the commits retrieved by the method \code{get.commits} after all filters have been applied
         #'
         #' @seealso get.commits.filtered
-        get.commits.filtered.uncached = function(remove.untracked.files, remove.base.artifact) {
-            return (private$filter.commits(self$get.commits(), remove.untracked.files, remove.base.artifact))
+        get.commits.filtered.uncached = function(remove.untracked.files, remove.base.artifact, remove.bots = FALSE) {
+            return (private$filter.commits(self$get.commits(), remove.untracked.files, remove.base.artifact, remove.bots))
         },
 
         #' Get the list of commits which have the artifact kind configured in the \code{project.conf}.
@@ -1048,7 +1072,7 @@ ProjectData = R6::R6Class("ProjectData",
             ## if mails are not read already, do this
             if (is.null(private$mails)) {
                 mails.read = read.mails(self$get.data.path())
-
+                ## TODO filter mail data
                 self$set.mails(mails.read)
             }
             private$extract.timestamps(source = "mails")
@@ -1127,7 +1151,8 @@ ProjectData = R6::R6Class("ProjectData",
             if (is.null(private$issues.filtered)) {
                 private$issues.filtered = private$filter.issues(
                     self$get.issues(),
-                    private$project.conf$get.value("issues.only.comments"))
+                    private$project.conf$get.value("issues.only.comments"),
+                    private$project.conf$get.value("filter.bots"))
             }
             return(private$issues.filtered)
         },
@@ -1143,9 +1168,9 @@ ProjectData = R6::R6Class("ProjectData",
         #' @return the issue data
         #'
         #' @seealso get.issues.filtered
-        get.issues.filtered.uncached = function(issues.only.comments) {
+        get.issues.filtered.uncached = function(issues.only.comments, remove.bots = FALSE) {
             logging::loginfo("Getting issue data")
-            return(private$filter.issues(self$get.issues(), issues.only.comments))
+            return(private$filter.issues(self$get.issues(), issues.only.comments, remove.bots))
         },
 
         #' Get the issue data, unfiltered.
